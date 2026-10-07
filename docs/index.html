@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>가위바위보 인식</title>
+<meta name="description" content="웹캠으로 손 제스처(가위·바위·보)를 실시간 인식하는 MediaPipe 데모">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✋</text></svg>">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5f6b7a;
+    --line: #e2e6eb; --accent: #2f6fed; --accent-weak: #e7eefd; --bar: #2f6fed;
+    --stage: #111418; --ok: #1a7f37; --warn: #b35900;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216; --card: #181c22; --text: #e8ecf1; --muted: #9aa5b1;
+      --line: #2a3038; --accent: #6b9bff; --accent-weak: #1d2a44; --bar: #6b9bff;
+      --stage: #000000; --ok: #4ac26b; --warn: #f0a050;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1216; --card: #181c22; --text: #e8ecf1; --muted: #9aa5b1;
+    --line: #2a3038; --accent: #6b9bff; --accent-weak: #1d2a44; --bar: #6b9bff;
+    --stage: #000000; --ok: #4ac26b; --warn: #f0a050;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 40px; }
+  header h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.02em; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; margin-top: 20px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .stage {
+    position: relative; background: var(--stage); border-radius: 12px; overflow: hidden;
+    aspect-ratio: 4 / 3; display: grid; place-items: center;
+  }
+  .stage canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .stage .overlay {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    color: #e8ecf1; padding: 16px;
+  }
+  .overlay .hint { color: #9aa5b1; font-size: 0.92rem; margin-top: 8px; }
+  button {
+    font: inherit; font-weight: 600; border: 0; border-radius: 10px; cursor: pointer;
+    padding: 12px 22px; background: var(--accent); color: #fff;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .status { margin-top: 10px; font-size: 0.9rem; color: var(--muted); min-height: 1.4em; }
+  .result { text-align: center; padding: 8px 0 12px; }
+  .result .emoji {
+    font-size: 96px; line-height: 1.1; min-height: 1.1em;
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  }
+  .result .name { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.02em; }
+  .result .sub { color: var(--muted); font-size: 0.9rem; }
+  h2 { font-size: 0.95rem; margin: 18px 0 8px; color: var(--muted); font-weight: 600; }
+  .bar-row { display: grid; grid-template-columns: 80px 1fr 44px; gap: 8px; align-items: center; margin: 6px 0; font-size: 0.92rem; }
+  .bar { height: 10px; background: var(--accent-weak); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--bar); border-radius: 99px; transition: width 80ms linear; }
+  .bar-row .pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .slider { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; margin: 8px 0; font-size: 0.92rem; }
+  .slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  .slider output { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; font-size: 0.92rem; }
+  .legend span { white-space: nowrap; }
+  footer { margin-top: 20px; color: var(--muted); font-size: 0.85rem; }
+  footer a { color: var(--accent); }
+  .check-ok { color: var(--ok); } .check-bad { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>✊ 가위바위보 제스처 인식</h1>
+    <p>웹캠에 손을 보여주면 직접 학습시킨 모델이 가위·바위·보를 실시간으로 알아봅니다. 영상은 브라우저 안에서만 처리되고 어디에도 전송되지 않습니다.</p>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <div class="stage">
+        <canvas id="canvas" width="640" height="480"></canvas>
+        <div class="overlay" id="overlay">
+          <div>
+            <button id="start" disabled>모델 불러오는 중…</button>
+            <div class="hint">카메라 권한을 허용해 주세요</div>
+          </div>
+        </div>
+      </div>
+      <div class="status" id="status"></div>
+    </section>
+
+    <aside class="card">
+      <div class="result">
+        <div class="emoji" id="emoji"></div>
+        <div class="name" id="name">-</div>
+        <div class="sub" id="sub">손을 보여주세요</div>
+      </div>
+
+      <h2>클래스별 확률</h2>
+      <div id="bars"></div>
+
+      <h2>설정</h2>
+      <label class="slider">확신도 임계값 <output id="thrOut">0.70</output>
+        <input type="range" id="thr" min="0.3" max="0.99" step="0.01" value="0.7">
+      </label>
+      <label class="slider">스무딩 (프레임) <output id="smoothOut">5</output>
+        <input type="range" id="smooth" min="1" max="15" step="1" value="5">
+      </label>
+
+      <h2>제스처</h2>
+      <div class="legend"><span>🪨 rock</span><span>✂️ scissors</span><span>✋ paper</span></div>
+    </aside>
+  </div>
+
+  <footer>
+    MediaPipe Hand Landmarker + 직접 수집·학습한 MLP 분류기 ·
+    <a href="https://github.com/taemin2000min-debug/mediapipe-webcam">GitHub 저장소</a> ·
+    <span id="check"></span>
+  </footer>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
